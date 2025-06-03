@@ -75,3 +75,6 @@ lto              = 'fat'
 opt-level        = 's'
 overflow-checks  = false
 panic = "abort"
+
+[build-dependencies]
+image = "0.25.6"
