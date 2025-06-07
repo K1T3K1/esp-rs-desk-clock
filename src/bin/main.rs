@@ -1,16 +1,19 @@
 #![no_std]
 #![no_main]
 
+use alloc::string::ToString;
 use esp_clock::{
+    clock::Clock,
     dht::DHT,
+    fonts::init_font,
     led_embassy,
     xtlcd::{enums, XTLCD},
-    CULTLEADEROVERWORLD,
 };
 
 use embassy_time::Timer;
 use esp_hal::{
-    clock::CpuClock, gpio::Pin, peripheral::Peripheral, timer::timg::TimerGroup,
+    clock::CpuClock, gpio::Pin, peripheral::Peripheral, rtc_cntl::Rtc,
+    timer::timg::TimerGroup,
 };
 use esp_println::println;
 
@@ -43,6 +46,7 @@ async fn main(spawner: Spawner) -> ! {
         timg0,
         radio_clk,
         rng,
+        lpwr,
     ) = unsafe {
         let led_pin = peripherals.GPIO2.clone_unchecked();
         let dht_pin = peripherals.GPIO5.clone_unchecked();
@@ -58,6 +62,7 @@ async fn main(spawner: Spawner) -> ! {
         let timg0 = peripherals.TIMG0.clone_unchecked();
         let radio_clk = peripherals.RADIO_CLK.clone_unchecked();
         let rng = peripherals.RNG.clone_unchecked();
+        let lpwr = peripherals.LPWR.clone_unchecked();
 
         (
             led_pin,
@@ -72,6 +77,7 @@ async fn main(spawner: Spawner) -> ! {
             timg0,
             radio_clk,
             rng,
+            lpwr,
         )
     };
 
@@ -79,6 +85,8 @@ async fn main(spawner: Spawner) -> ! {
     let _init =
         esp_wifi::init(tg0.timer0, esp_hal::rng::Rng::new(rng), radio_clk)
             .unwrap();
+
+    let rtc = Rtc::new(lpwr);
 
     let timer_embassy = TimerGroup::new(tg);
     esp_hal_embassy::init(timer_embassy.timer0);
@@ -132,11 +140,16 @@ async fn main(spawner: Spawner) -> ! {
         .spawn(led_embassy::led_task(led_pin.degrade()))
         .unwrap();
 
-    Timer::after_millis(150).await;
+    let mut clock = Clock::new(rtc, 180, 110, 32.0, [0xFF, 0xFF]);
 
-    xtlcd.draw_image(100, 100, &CULTLEADEROVERWORLD);
+    Timer::after_millis(150).await;
+    println!("Initializing font...");
+    let font = init_font();
+    println!("Font initialized... Writing text");
+
+    clock.draw_time(xtlcd, &font);
     loop {
-        Timer::after_secs(2).await;
+        Timer::after_secs(1).await;
         match dht.read_data() {
             Some(d) => {
                 humidity = (humidity + d.humidity) / 2.0;
@@ -144,6 +157,7 @@ async fn main(spawner: Spawner) -> ! {
             }
             None => (),
         }
+        clock.refresh_time(xtlcd, &font);
 
         println!(
             "Humidity: {:.2}% | Temperature: {:.2}°C",

@@ -30,7 +30,7 @@ fn get_images() {
             }) {
                 let name = path.file_stem().unwrap().to_str().unwrap();
 
-                let img = image::open(&path).unwrap();
+                let img = image::open(&path).unwrap().fliph();
                 let rgb8 = img.to_rgb8();
                 let (width, height) = rgb8.dimensions();
 

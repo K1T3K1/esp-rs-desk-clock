@@ -20,10 +20,9 @@ use esp_hal::{
     time::Rate,
     Blocking,
 };
+use fontdue::Font;
 
 use crate::ImageData;
-
-use esp_println::println;
 
 mod commands {
     pub const NOP: u8 = 0x00;
@@ -169,6 +168,7 @@ impl<'a> XTLCD<'a> {
         self
     }
 
+    #[inline]
     pub fn with_column_boundaries(
         &mut self,
         leftmost: u16,
@@ -178,11 +178,11 @@ impl<'a> XTLCD<'a> {
                                              // instruction
         let left = leftmost.to_be_bytes();
         let right = rightmost.to_be_bytes();
-        println!("Right = {:?}", right);
         self.write_data(&[left[0], left[1], right[0], right[1]]);
         self
     }
 
+    #[inline]
     pub fn with_row_boundaries(
         &mut self,
         bottommost: u16,
@@ -221,17 +221,20 @@ impl<'a> XTLCD<'a> {
         self
     }
 
-    pub fn with_inversion(
-        &mut self, is_inverted: bool
-    ) -> &mut Self {
-        self.write_command(if is_inverted { commands::INVON } else { commands::INVOFF });
+    pub fn with_inversion(&mut self, is_inverted: bool) -> &mut Self {
+        self.write_command(if is_inverted {
+            commands::INVON
+        } else {
+            commands::INVOFF
+        });
         self
     }
 
-    pub fn with_background(&mut self) -> &mut Self{
-        self.with_column_boundaries(0, 479).with_row_boundaries(0, 319);
+    pub fn with_background(&mut self) -> &mut Self {
+        self.with_column_boundaries(0, 479)
+            .with_row_boundaries(0, 319);
         self.write_command(commands::RAMWR);
-        for _ in 0..(480*320) {
+        for _ in 0..(480 * 320) {
             self.write_data(&[0x00, 0x00]);
         }
         self
@@ -247,15 +250,34 @@ impl<'a> XTLCD<'a> {
         delay.delay_millis(120);
     }
 
+    #[inline]
     pub fn write_command(&mut self, command: u8) {
         self.command_pin.set_low();
-        let res = self.spi.write(&[command]);
-        println!("Write command res: {:?}", res);
+        let _ = self.spi.write(&[command]);
     }
 
+    #[inline]
     pub fn write_data(&mut self, data: &[u8]) {
         self.command_pin.set_high();
         let _ = self.spi.write(data);
+    }
+
+    #[inline]
+    pub fn draw_rect(
+        &mut self,
+        x: u16,
+        y: u16,
+        height: u16,
+        width: u16,
+        color: &[u8; 2],
+    ) {
+        self.with_row_boundaries(y, y + height - 1)
+            .with_column_boundaries(x, x + width - 1);
+
+        self.write_command(commands::RAMWR);
+        for _ in 0..(height * width) {
+            self.write_data(color);
+        }
     }
 
     pub fn draw_image(&mut self, x: u16, y: u16, image: &ImageData) {
@@ -268,5 +290,57 @@ impl<'a> XTLCD<'a> {
         for chunk in image.data.chunks(CHUNK_SIZE) {
             self.write_data(chunk);
         }
+    }
+
+    #[inline]
+    pub fn draw_text(
+        &mut self,
+        x: u16,
+        y: u16,
+        text: &str,
+        font: &Font,
+        size: f32,
+        color: &[u8; 2],
+    ) -> (u16, u16) {
+        let mut x_offset = 0;
+        let mut height = 0;
+
+        for letter in text.chars().rev() {
+            let (metrics, bitmap) = font.rasterize(letter, size);
+            if metrics.height > height {
+                height = metrics.height;
+            }
+
+            // Skip empty characters
+            if metrics.width == 0 || metrics.height == 0 {
+                x_offset += metrics.advance_width as u16;
+                continue;
+            }
+
+            // Draw each pixel of the character
+            for row in 0..metrics.height {
+                for col in (0..metrics.width).rev() {
+                    let bitmap_index = row * metrics.width + col;
+                    if bitmap_index < bitmap.len() {
+                        let alpha = bitmap[bitmap_index];
+
+                        // Only draw opaque pixels
+                        if alpha > 128 {
+                            let pixel_x = (x + x_offset - (col as u16)) + (metrics.width as u16);
+                            let pixel_y = y + row as u16;
+
+                            // Draw single pixel
+                            self.with_row_boundaries(pixel_y, pixel_y)
+                                .with_column_boundaries(pixel_x, pixel_x);
+                            self.write_command(commands::RAMWR);
+                            self.write_data(color);
+                        }
+                    }
+                }
+            }
+
+            x_offset += metrics.advance_width as u16;
+        }
+        (x_offset, height as u16)
     }
 }
