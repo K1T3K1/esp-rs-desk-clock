@@ -1,23 +1,24 @@
 #![no_std]
 #![no_main]
+#![feature(core_intrinsics)]
 
 use alloc::string::ToString;
+use core::intrinsics;
 use esp_clock::{
     clock::Clock,
     dht::DHT,
-    fonts::init_font,
+    fonts::{init_font, init_letters_font},
     led_embassy,
     xtlcd::{enums, XTLCD},
 };
 
+use embassy_executor::Spawner;
 use embassy_time::Timer;
 use esp_hal::{
     clock::CpuClock, gpio::Pin, peripheral::Peripheral, rtc_cntl::Rtc,
     timer::timg::TimerGroup,
 };
 use esp_println::println;
-
-use embassy_executor::Spawner;
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -102,11 +103,12 @@ async fn main(spawner: Spawner) -> ! {
         &peripherals,
     )
     .unwrap();
+
     let xtlcd = xtlcd_uninit
         .with_init()
         .with_sleep_out()
         .with_memory_data_access_modes(
-            enums::MadCtlRWOrder::Row,
+            enums::MadCtlRWOrder::Column,
             enums::MadCtlVerticalRefreshOrder::TopToBottom,
             enums::MadCtlColorOrder::BGR,
             enums::MadCtlHorizontalRefreshOrder::LeftToRight,
@@ -144,24 +146,42 @@ async fn main(spawner: Spawner) -> ! {
 
     Timer::after_millis(150).await;
     println!("Initializing font...");
-    let font = init_font();
+    let fontnum = init_font();
+    let fontnum = init_letters_font();
+
     println!("Font initialized... Writing text");
 
-    clock.draw_time(xtlcd, &font);
+    clock.draw_time(xtlcd, &fontnum);
     loop {
         Timer::after_secs(1).await;
         match dht.read_data() {
             Some(d) => {
-                humidity = (humidity + d.humidity) / 2.0;
-                temperature = (temperature + d.temperature) / 2.0;
+                humidity = unsafe {
+                    intrinsics::truncf32((humidity + d.humidity) / 2.0 * 100.0)
+                        / 100.0
+                };
+                temperature = unsafe {
+                    intrinsics::truncf32(
+                        (temperature + d.temperature) / 2.0 * 100.0,
+                    ) / 100.0
+                };
             }
             None => (),
         }
-        clock.refresh_time(xtlcd, &font);
+        clock.refresh_time(xtlcd, &fontnum);
 
-        println!(
-            "Humidity: {:.2}% | Temperature: {:.2}°C",
-            humidity, temperature
+        xtlcd.draw_rect(50, 160, 50, 300, &[0x00, 0x00]);
+        xtlcd.draw_text(
+            50,
+            160,
+            &(humidity.to_string()
+                + "%"
+                + "..."
+                + &temperature.to_string()
+                + "°"),
+            &fontnum,
+            32.0,
+            &[0xFF, 0xFF],
         );
     }
 }

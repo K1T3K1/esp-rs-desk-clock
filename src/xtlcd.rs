@@ -319,15 +319,17 @@ impl<'a> XTLCD<'a> {
 
             // Draw each pixel of the character
             for row in 0..metrics.height {
-                for col in (0..metrics.width).rev() {
+                for col in 0..metrics.width {
                     let bitmap_index = row * metrics.width + col;
                     if bitmap_index < bitmap.len() {
                         let alpha = bitmap[bitmap_index];
 
                         // Only draw opaque pixels
                         if alpha > 128 {
-                            let pixel_x = (x + x_offset - (col as u16)) + (metrics.width as u16);
-                            let pixel_y = y + row as u16;
+                            let pixel_x = (x + x_offset - (col as u16))
+                                + (metrics.width as u16);
+                            let pixel_y =
+                                (y + (metrics.height as u16)) - row as u16;
 
                             // Draw single pixel
                             self.with_row_boundaries(pixel_y, pixel_y)

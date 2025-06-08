@@ -125,7 +125,7 @@ impl<'a> Clock<'a> {
             height: h,
         };
 
-        offset = offset + w; 
+        offset = offset + w;
         let (w, _) = display.draw_text(
             self.x + offset,
             self.y + (self.shift / 2),
@@ -155,13 +155,19 @@ impl<'a> Clock<'a> {
 
     pub fn refresh_time(&mut self, display: &mut XTLCD, font: &Font) {
         let time = self.rtc.current_time().time();
-        
+
         let mut hour = time.hour().to_string();
         if time.hour() != self.rhour.value {
             if hour.len() == 1 {
                 hour = "0".to_string() + &hour;
             }
-            display.draw_rect(self.rhour.x, self.rhour.y, self.rhour.height, self.rhour.width, &[0x00, 0x00]);
+            display.draw_rect(
+                self.rhour.x,
+                self.rhour.y,
+                self.rhour.height,
+                self.rhour.width,
+                &[0x00, 0x00],
+            );
             display.draw_text(
                 self.rhour.x,
                 self.rhour.y,
@@ -178,7 +184,13 @@ impl<'a> Clock<'a> {
             if minute.len() == 1 {
                 minute = "0".to_string() + &minute;
             }
-            display.draw_rect(self.rminute.x, self.rminute.y, self.rminute.height, self.rminute.width, &[0x00, 0x00]);
+            display.draw_rect(
+                self.rminute.x,
+                self.rminute.y,
+                self.rminute.height,
+                self.rminute.width,
+                &[0x00, 0x00],
+            );
             display.draw_text(
                 self.rminute.x,
                 self.rminute.y,
@@ -195,7 +207,13 @@ impl<'a> Clock<'a> {
             if second.len() == 1 {
                 second = "0".to_string() + &second;
             }
-            display.draw_rect(self.rsecond.x, self.rsecond.y, self.rsecond.height, self.rsecond.width, &[0x00, 0x00]);
+            display.draw_rect(
+                self.rsecond.x,
+                self.rsecond.y,
+                self.rsecond.height,
+                self.rsecond.width,
+                &[0x00, 0x00],
+            );
             display.draw_text(
                 self.rsecond.x,
                 self.rsecond.y,
