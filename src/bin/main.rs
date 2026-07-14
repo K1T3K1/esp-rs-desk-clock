@@ -7,16 +7,14 @@ use core::intrinsics;
 use esp_clock::{
     clock::Clock,
     dht::DHT,
-    fonts::{init_font, init_letters_font},
-    led_embassy,
+    display_utils::{init_font, DataDisplay},
     xtlcd::{enums, XTLCD},
+    IMG_3814,
 };
 
-use embassy_executor::Spawner;
-use embassy_time::Timer;
 use esp_hal::{
-    clock::CpuClock, gpio::Pin, peripheral::Peripheral, rtc_cntl::Rtc,
-    timer::timg::TimerGroup,
+    clock::CpuClock, delay::Delay, main, peripheral::Peripheral, rtc_cntl::Rtc,
+    time::Instant, timer::timg::TimerGroup,
 };
 use esp_println::println;
 
@@ -27,15 +25,13 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
 
 extern crate alloc;
 
-#[esp_hal_embassy::main]
-async fn main(spawner: Spawner) -> ! {
+#[main]
+fn main() -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
-
-    esp_alloc::heap_allocator!(size: 72 * 1024);
+    esp_alloc::heap_allocator!(size: 82 * 1024);
 
     let (
-        led_pin,
         dht_pin,
         xtlcd_select_pin,
         xtlcd_reset_pin,
@@ -43,13 +39,11 @@ async fn main(spawner: Spawner) -> ! {
         xtlcd_sdi_pin,
         xtlcd_sck_pin,
         xtlcd_sdo_pin,
-        tg,
         timg0,
         radio_clk,
         rng,
         lpwr,
     ) = unsafe {
-        let led_pin = peripherals.GPIO2.clone_unchecked();
         let dht_pin = peripherals.GPIO5.clone_unchecked();
 
         // Display
@@ -59,14 +53,12 @@ async fn main(spawner: Spawner) -> ! {
         let xtlcd_sdi_pin = peripherals.GPIO23.clone_unchecked();
         let xtlcd_sck_pin = peripherals.GPIO18.clone_unchecked();
         let xtlcd_sdo_pin = peripherals.GPIO19.clone_unchecked();
-        let tg = peripherals.TIMG1.clone_unchecked();
         let timg0 = peripherals.TIMG0.clone_unchecked();
         let radio_clk = peripherals.RADIO_CLK.clone_unchecked();
         let rng = peripherals.RNG.clone_unchecked();
         let lpwr = peripherals.LPWR.clone_unchecked();
 
         (
-            led_pin,
             dht_pin,
             xtlcd_select_pin,
             xtlcd_reset_pin,
@@ -74,7 +66,6 @@ async fn main(spawner: Spawner) -> ! {
             xtlcd_sdi_pin,
             xtlcd_sck_pin,
             xtlcd_sdo_pin,
-            tg,
             timg0,
             radio_clk,
             rng,
@@ -89,10 +80,7 @@ async fn main(spawner: Spawner) -> ! {
 
     let rtc = Rtc::new(lpwr);
 
-    let timer_embassy = TimerGroup::new(tg);
-    esp_hal_embassy::init(timer_embassy.timer0);
-
-    let dht = DHT::new(dht_pin);
+    let mut dht = DHT::new(dht_pin, 300, 45, 40.0, [0xFF, 0xFF]);
     let mut xtlcd_uninit = XTLCD::new(
         xtlcd_select_pin,
         xtlcd_reset_pin,
@@ -108,7 +96,7 @@ async fn main(spawner: Spawner) -> ! {
         .with_init()
         .with_sleep_out()
         .with_memory_data_access_modes(
-            enums::MadCtlRWOrder::Column,
+            enums::MadCtlRWOrder::Row,
             enums::MadCtlVerticalRefreshOrder::TopToBottom,
             enums::MadCtlColorOrder::BGR,
             enums::MadCtlHorizontalRefreshOrder::LeftToRight,
@@ -123,65 +111,28 @@ async fn main(spawner: Spawner) -> ! {
         .with_normal_display_on()
         .with_background();
 
-    Timer::after_millis(150).await;
+    let mut clock = Clock::new(rtc, 35, 45, 40.0, [0xFF, 0xFF]);
 
-    let mut humidity = 0.0;
-    let mut temperature = 0.0;
-
-    while humidity == 0.0 {
-        match dht.read_data() {
-            Some(d) => {
-                humidity = d.humidity;
-                temperature = d.temperature;
-            }
-            None => (),
-        }
-    }
-
-    spawner
-        .spawn(led_embassy::led_task(led_pin.degrade()))
-        .unwrap();
-
-    let mut clock = Clock::new(rtc, 180, 110, 32.0, [0xFF, 0xFF]);
-
-    Timer::after_millis(150).await;
     println!("Initializing font...");
     let fontnum = init_font();
-    let fontnum = init_letters_font();
 
     println!("Font initialized... Writing text");
 
-    clock.draw_time(xtlcd, &fontnum);
-    loop {
-        Timer::after_secs(1).await;
-        match dht.read_data() {
-            Some(d) => {
-                humidity = unsafe {
-                    intrinsics::truncf32((humidity + d.humidity) / 2.0 * 100.0)
-                        / 100.0
-                };
-                temperature = unsafe {
-                    intrinsics::truncf32(
-                        (temperature + d.temperature) / 2.0 * 100.0,
-                    ) / 100.0
-                };
-            }
-            None => (),
-        }
-        clock.refresh_time(xtlcd, &fontnum);
+    clock.init_display(xtlcd, &fontnum);
+    dht.init_display(xtlcd, &fontnum);
+    dht.read_data();
+    dht.refresh_display(xtlcd, &fontnum);
+    let delay = Delay::new();
+    let mut inst_timer = Instant::now();
+    xtlcd.draw_image(20, 150, &IMG_3814);
 
-        xtlcd.draw_rect(50, 160, 50, 300, &[0x00, 0x00]);
-        xtlcd.draw_text(
-            50,
-            160,
-            &(humidity.to_string()
-                + "%"
-                + "..."
-                + &temperature.to_string()
-                + "°"),
-            &fontnum,
-            32.0,
-            &[0xFF, 0xFF],
-        );
+    loop {
+        dht.read_data();
+        clock.refresh_display(xtlcd, &fontnum);
+        if inst_timer.elapsed().as_secs() > 10 {
+            dht.refresh_display(xtlcd, &fontnum);
+            inst_timer = Instant::now();
+        }
+        delay.delay_millis(999);
     }
 }

@@ -301,6 +301,7 @@ impl<'a> XTLCD<'a> {
         font: &Font,
         size: f32,
         color: &[u8; 2],
+        background_color: &[u8; 2],
     ) -> (u16, u16) {
         let mut x_offset = 0;
         let mut height = 0;
@@ -317,26 +318,26 @@ impl<'a> XTLCD<'a> {
                 continue;
             }
 
-            // Draw each pixel of the character
-            for row in 0..metrics.height {
-                for col in 0..metrics.width {
+            for row in (0..metrics.height).rev() {
+                for col in (0..metrics.width).rev() {
                     let bitmap_index = row * metrics.width + col;
                     if bitmap_index < bitmap.len() {
                         let alpha = bitmap[bitmap_index];
 
-                        // Only draw opaque pixels
-                        if alpha > 128 {
-                            let pixel_x = (x + x_offset - (col as u16))
-                                + (metrics.width as u16);
-                            let pixel_y =
-                                (y + (metrics.height as u16)) - row as u16;
-
-                            // Draw single pixel
-                            self.with_row_boundaries(pixel_y, pixel_y)
-                                .with_column_boundaries(pixel_x, pixel_x);
-                            self.write_command(commands::RAMWR);
-                            self.write_data(color);
+                        let mut paint_in_color = color;
+                        if alpha < 144 {
+                            paint_in_color = background_color
                         }
+                        let pixel_x = (x + x_offset - (col as u16))
+                            + (metrics.width as u16);
+                        let pixel_y = (y + row as u16)
+                            .wrapping_add_signed(-metrics.ymin as i16)
+                            - metrics.height as u16;
+
+                        self.with_row_boundaries(pixel_y, pixel_y)
+                            .with_column_boundaries(pixel_x, pixel_x);
+                        self.write_command(commands::RAMWR);
+                        self.write_data(paint_in_color);
                     }
                 }
             }

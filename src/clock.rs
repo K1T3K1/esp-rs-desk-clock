@@ -1,17 +1,15 @@
-use crate::xtlcd::XTLCD;
+use crate::{
+    display_utils::{
+        DataDisplay, Padding, PaddingData, PaddingLeft, RefreshTextRect,
+    },
+    xtlcd::XTLCD,
+};
 use alloc::string::ToString;
 use chrono::Timelike;
 use esp_hal::rtc_cntl::Rtc;
 use fontdue::Font;
-extern crate alloc;
 
-struct TimeRect {
-    value:  u32,
-    x:      u16,
-    y:      u16,
-    width:  u16,
-    height: u16,
-}
+extern crate alloc;
 
 pub struct Clock<'a> {
     rtc:       Rtc<'a>,
@@ -21,9 +19,9 @@ pub struct Clock<'a> {
     shift:     u16,
     color:     [u8; 2],
 
-    rhour:   TimeRect,
-    rminute: TimeRect,
-    rsecond: TimeRect,
+    rhour:   RefreshTextRect<u32, PaddingLeft>,
+    rminute: RefreshTextRect<u32, PaddingLeft>,
+    rsecond: RefreshTextRect<u32, PaddingLeft>,
 }
 
 impl<'a> Clock<'a> {
@@ -42,31 +40,16 @@ impl<'a> Clock<'a> {
             font_size,
             shift,
             color,
-            rhour: TimeRect {
-                value:  0,
-                x:      0,
-                y:      0,
-                width:  0,
-                height: 0,
-            },
-            rminute: TimeRect {
-                value:  0,
-                x:      0,
-                y:      0,
-                width:  0,
-                height: 0,
-            },
-            rsecond: TimeRect {
-                value:  0,
-                x:      0,
-                y:      0,
-                width:  0,
-                height: 0,
-            },
+            rhour: RefreshTextRect::default(),
+            rminute: RefreshTextRect::default(),
+            rsecond: RefreshTextRect::default(),
         }
     }
+}
 
-    pub fn draw_time(&mut self, display: &mut XTLCD, font: &Font) {
+impl<'a> DataDisplay for Clock<'a> {
+    fn init_display(&mut self, display: &mut XTLCD, font: &Font) {
+        let background_color = [0x00, 0x00];
         let mut offset = 0;
         let time = self.rtc.current_time().time();
         let mut hour = time.hour().to_string();
@@ -89,26 +72,35 @@ impl<'a> Clock<'a> {
             font,
             self.font_size,
             &self.color,
+            &background_color,
         );
-        self.rsecond = TimeRect {
-            value:  time.second(),
-            x:      self.x + offset,
-            y:      self.y,
-            width:  w,
-            height: h,
+        self.rsecond = RefreshTextRect {
+            control_value:    time.second(),
+            x:                self.x + offset,
+            y:                self.y,
+            text_color:       self.color.clone(),
+            background_color: background_color.clone(),
+            text_size:        self.font_size,
+            padding:          PaddingLeft {
+                data: PaddingData {
+                    width:  2,
+                    symbol: '0',
+                },
+            },
         };
 
-        offset = offset + w;
+        offset = offset + w + self.shift;
         let (w, _) = display.draw_text(
             self.x + offset,
-            self.y + (self.shift / 2),
+            self.y,
             ":",
             font,
             self.font_size,
             &self.color,
+            &background_color,
         );
 
-        offset = offset + w - self.shift;
+        offset = offset + w + self.shift;
         let (w, h) = display.draw_text(
             self.x + offset,
             self.y,
@@ -116,26 +108,35 @@ impl<'a> Clock<'a> {
             font,
             self.font_size,
             &self.color,
+            &background_color,
         );
-        self.rminute = TimeRect {
-            value:  time.minute(),
-            x:      self.x + offset,
-            y:      self.y,
-            width:  w,
-            height: h,
+        self.rminute = RefreshTextRect {
+            control_value:    time.minute(),
+            x:                self.x + offset,
+            y:                self.y,
+            text_color:       self.color.clone(),
+            background_color: background_color.clone(),
+            text_size:        self.font_size,
+            padding:          PaddingLeft {
+                data: PaddingData {
+                    width:  2,
+                    symbol: '0',
+                },
+            },
         };
 
-        offset = offset + w;
+        offset = offset + w + self.shift;
         let (w, _) = display.draw_text(
             self.x + offset,
-            self.y + (self.shift / 2),
+            self.y,
             ":",
             font,
             self.font_size,
             &self.color,
+            &background_color,
         );
 
-        offset = offset + w - self.shift;
+        offset = offset + w + self.shift;
         let (w, h) = display.draw_text(
             self.x + offset,
             self.y,
@@ -143,86 +144,29 @@ impl<'a> Clock<'a> {
             font,
             self.font_size,
             &self.color,
+            &background_color,
         );
-        self.rhour = TimeRect {
-            value:  time.hour(),
-            x:      self.x + offset,
-            y:      self.y,
-            width:  w,
-            height: h,
+        self.rhour = RefreshTextRect {
+            control_value:    time.hour(),
+            x:                self.x + offset,
+            y:                self.y,
+            text_color:       self.color.clone(),
+            background_color: background_color.clone(),
+            text_size:        self.font_size,
+            padding:          PaddingLeft {
+                data: PaddingData {
+                    width:  2,
+                    symbol: '0',
+                },
+            },
         };
     }
 
-    pub fn refresh_time(&mut self, display: &mut XTLCD, font: &Font) {
+    fn refresh_display(&mut self, display: &mut XTLCD, font: &Font) {
         let time = self.rtc.current_time().time();
 
-        let mut hour = time.hour().to_string();
-        if time.hour() != self.rhour.value {
-            if hour.len() == 1 {
-                hour = "0".to_string() + &hour;
-            }
-            display.draw_rect(
-                self.rhour.x,
-                self.rhour.y,
-                self.rhour.height,
-                self.rhour.width,
-                &[0x00, 0x00],
-            );
-            display.draw_text(
-                self.rhour.x,
-                self.rhour.y,
-                &hour,
-                font,
-                self.font_size,
-                &self.color,
-            );
-            self.rhour.value = time.hour();
-        }
-
-        let mut minute = time.minute().to_string();
-        if time.minute() != self.rminute.value {
-            if minute.len() == 1 {
-                minute = "0".to_string() + &minute;
-            }
-            display.draw_rect(
-                self.rminute.x,
-                self.rminute.y,
-                self.rminute.height,
-                self.rminute.width,
-                &[0x00, 0x00],
-            );
-            display.draw_text(
-                self.rminute.x,
-                self.rminute.y,
-                &minute,
-                font,
-                self.font_size,
-                &self.color,
-            );
-            self.rminute.value = time.minute();
-        }
-
-        let mut second = time.second().to_string();
-        if time.second() != self.rsecond.value {
-            if second.len() == 1 {
-                second = "0".to_string() + &second;
-            }
-            display.draw_rect(
-                self.rsecond.x,
-                self.rsecond.y,
-                self.rsecond.height,
-                self.rsecond.width,
-                &[0x00, 0x00],
-            );
-            display.draw_text(
-                self.rsecond.x,
-                self.rsecond.y,
-                &second,
-                font,
-                self.font_size,
-                &self.color,
-            );
-            self.rsecond.value = time.second();
-        }
+        self.rhour.refresh_checked(display, font, time.hour());
+        self.rminute.refresh_checked(display, font, time.minute());
+        self.rsecond.refresh_checked(display, font, time.second());
     }
 }
